@@ -30,6 +30,15 @@ class OcrEngine(private val context: Context) {
             tess.setVariable("preserve_interword_spaces", "1")
 
             val prepared = preprocess(bitmap)
+
+            // For ruled tables/forms, OCR-ing each detected cell separately beats trusting
+            // Tesseract (or even geometry-based reordering) on the whole page at once.
+            val grid = TableGridDetector.detect(prepared)
+            if (grid != null) {
+                val tableText = recognizeGrid(tess, prepared, grid)
+                if (tableText.isNotBlank()) return tableText
+            }
+
             tess.setImage(prepared)
 
             // Triggers native recognition; Tesseract's own paragraph/block ordering
@@ -42,6 +51,41 @@ class OcrEngine(private val context: Context) {
         } finally {
             tess.recycle()
         }
+    }
+
+    /** Crops out every cell of the detected grid and OCRs it independently, then reassembles a
+     *  tab-separated table so columns line up regardless of how much text each cell holds. */
+    private fun recognizeGrid(tess: TessBaseAPI, bitmap: Bitmap, grid: TableGridDetector.Grid): String {
+        val rowBounds = grid.rowBounds
+        val colBounds = grid.colBounds
+        val cellCount = (rowBounds.size - 1) * (colBounds.size - 1)
+        if (cellCount <= 0 || cellCount > 400) return ""
+
+        val inset = 3
+        val rows = mutableListOf<List<String>>()
+        for (i in 0 until rowBounds.size - 1) {
+            val rowCells = mutableListOf<String>()
+            for (j in 0 until colBounds.size - 1) {
+                val left = (colBounds[j] + inset).coerceIn(0, bitmap.width)
+                val top = (rowBounds[i] + inset).coerceIn(0, bitmap.height)
+                val right = (colBounds[j + 1] - inset).coerceIn(left, bitmap.width)
+                val bottom = (rowBounds[i + 1] - inset).coerceIn(top, bitmap.height)
+                val cellWidth = right - left
+                val cellHeight = bottom - top
+
+                val text = if (cellWidth > 4 && cellHeight > 4) {
+                    val cell = Bitmap.createBitmap(bitmap, left, top, cellWidth, cellHeight)
+                    tess.setImage(cell)
+                    tess.getUTF8Text().orEmpty().trim().replace("\n", " ")
+                } else {
+                    ""
+                }
+                rowCells.add(text)
+            }
+            rows.add(rowCells)
+        }
+
+        return rows.joinToString("\n") { it.joinToString("\t") }
     }
 
     /** Reads every recognized word with its bounding box, bypassing Tesseract's own reading order. */

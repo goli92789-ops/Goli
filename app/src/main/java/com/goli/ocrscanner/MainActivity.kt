@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -26,7 +27,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,10 +42,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private const val OCR_LANGUAGE = "fas"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,12 +63,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class OcrLang(val code: String, val label: String) {
-    FA("fas", "فارسی"),
-    EN("eng", "انگلیسی"),
-    FA_EN("fas+eng", "فارسی + انگلیسی")
-}
-
 @Composable
 private fun OcrScreen() {
     val context = LocalContext.current
@@ -75,7 +72,6 @@ private fun OcrScreen() {
     var resultText by remember { mutableStateOf("") }
     var isBusy by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf("") }
-    var selectedLang by remember { mutableStateOf(OcrLang.FA) }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
 
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -126,14 +122,13 @@ private fun OcrScreen() {
 
     fun runOcr() {
         val currentBitmap = bitmap ?: return
-        val langsNeeded = selectedLang.code.split("+")
         scope.launch {
             isBusy = true
             resultText = ""
             try {
                 statusMessage = "در حال آماده‌سازی داده زبان..."
                 withContext(Dispatchers.IO) {
-                    TessDataManager.ensureLanguages(context, langsNeeded) { lang, percent ->
+                    TessDataManager.ensureLanguages(context, listOf(OCR_LANGUAGE)) { lang, percent ->
                         statusMessage = if (percent >= 0) {
                             "در حال دانلود داده زبان $lang: $percent%"
                         } else {
@@ -143,7 +138,7 @@ private fun OcrScreen() {
                 }
                 statusMessage = "در حال استخراج متن..."
                 val text = withContext(Dispatchers.Default) {
-                    OcrEngine(context).recognize(currentBitmap, selectedLang.code)
+                    OcrEngine(context).recognize(currentBitmap, OCR_LANGUAGE)
                 }
                 resultText = text.ifBlank { "متنی در عکس پیدا نشد." }
                 statusMessage = ""
@@ -173,23 +168,6 @@ private fun OcrScreen() {
                 Text("گرفتن عکس")
             }
         }
-
-        Spacer(Modifier.height(16.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OcrLang.entries.forEach { lang ->
-                FilterChip(
-                    selected = selectedLang == lang,
-                    onClick = { selectedLang = lang },
-                    label = { Text(lang.label) }
-                )
-            }
-        }
-        Text(
-            "برای سند تک‌زبانه، انتخاب همان یک زبان دقت را بیشتر می‌کند.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
 
         bitmap?.let { bmp ->
             Spacer(Modifier.height(16.dp))
@@ -225,8 +203,30 @@ private fun OcrScreen() {
     }
 }
 
-private fun loadBitmap(context: Context, uri: Uri): Bitmap? =
-    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+/** Loads the image and corrects its orientation using EXIF data (camera photos are often
+ *  stored in sensor orientation with only a rotation tag set, which otherwise feeds Tesseract
+ *  a sideways/upside-down image and wrecks recognition). */
+private fun loadBitmap(context: Context, uri: Uri): Bitmap? {
+    val original = context.contentResolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(it)
+    } ?: return null
+
+    val rotationDegrees = context.contentResolver.openInputStream(uri)?.use { stream ->
+        when (ExifInterface(stream).getAttributeInt(
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.ORIENTATION_NORMAL
+        )) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270
+            else -> 0
+        }
+    } ?: 0
+
+    if (rotationDegrees == 0) return original
+    val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+    return Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
+}
 
 private fun createCameraImageUri(context: Context): Uri {
     val imagesDir = File(context.cacheDir, "images").apply { mkdirs() }
