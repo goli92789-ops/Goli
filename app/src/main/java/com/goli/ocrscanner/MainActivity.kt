@@ -185,6 +185,11 @@ private fun OcrScreen() {
                 )
             }
         }
+        Text(
+            "برای سند تک‌زبانه، انتخاب همان یک زبان دقت را بیشتر می‌کند.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         bitmap?.let { bmp ->
             Spacer(Modifier.height(16.dp))
