@@ -75,7 +75,7 @@ private fun OcrScreen() {
     var resultText by remember { mutableStateOf("") }
     var isBusy by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf("") }
-    var selectedLang by remember { mutableStateOf(OcrLang.FA_EN) }
+    var selectedLang by remember { mutableStateOf(OcrLang.FA) }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
 
     val galleryLauncher = rememberLauncherForActivityResult(

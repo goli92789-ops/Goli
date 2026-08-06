@@ -6,12 +6,17 @@ import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
+import android.graphics.Rect
 import com.googlecode.tesseract.android.TessBaseAPI
+import com.googlecode.tesseract.android.TessBaseAPI.PageIteratorLevel.RIL_WORD
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** Thin wrapper around Tesseract4Android for one-shot text recognition. */
 class OcrEngine(private val context: Context) {
+
+    private data class Word(val text: String, val box: Rect)
 
     fun recognize(bitmap: Bitmap, langCode: String): String {
         val tess = TessBaseAPI()
@@ -26,9 +31,68 @@ class OcrEngine(private val context: Context) {
 
             val prepared = preprocess(bitmap)
             tess.setImage(prepared)
-            return tess.getUTF8Text().orEmpty()
+
+            // Triggers native recognition; Tesseract's own paragraph/block ordering
+            // (used to build this flat string) tends to scramble multi-column tables,
+            // so it's kept only as a fallback.
+            val flatText = tess.getUTF8Text().orEmpty()
+
+            val words = collectWords(tess)
+            return if (words.isNotEmpty()) reconstructByPosition(words) else flatText
         } finally {
             tess.recycle()
+        }
+    }
+
+    /** Reads every recognized word with its bounding box, bypassing Tesseract's own reading order. */
+    private fun collectWords(tess: TessBaseAPI): List<Word> {
+        val iterator = tess.getResultIterator() ?: return emptyList()
+        val words = mutableListOf<Word>()
+        do {
+            val text = iterator.getUTF8Text(RIL_WORD)
+            if (!text.isNullOrBlank()) {
+                words.add(Word(text.trim(), iterator.getBoundingRect(RIL_WORD)))
+            }
+        } while (iterator.next(RIL_WORD))
+        return words
+    }
+
+    /**
+     * Rebuilds the page as text rows using each word's geometry instead of Tesseract's
+     * block/paragraph analysis: words are grouped into rows by vertical overlap, then within
+     * each row ordered right-to-left (matching Persian reading direction). A wide horizontal
+     * gap between two words on the same row is treated as a column boundary and gets extra
+     * spacing, so separate table columns that land on the same row don't run together.
+     */
+    private fun reconstructByPosition(words: List<Word>): String {
+        val rows = mutableListOf<MutableList<Word>>()
+        for (word in words.sortedBy { it.box.top }) {
+            val row = rows.lastOrNull { r ->
+                val rowTop = r.minOf { it.box.top }
+                val rowBottom = r.maxOf { it.box.bottom }
+                val overlap = min(rowBottom, word.box.bottom) - max(rowTop, word.box.top)
+                overlap > word.box.height() * 0.4
+            }
+            if (row != null) row.add(word) else rows.add(mutableListOf(word))
+        }
+        rows.sortBy { row -> row.sumOf { it.box.top } / row.size }
+
+        val avgWordHeight = words.map { it.box.height() }.average().takeIf { it > 0.0 } ?: 20.0
+        val columnGapThreshold = avgWordHeight * 2.5
+
+        return rows.joinToString("\n") { row ->
+            val rightToLeft = row.sortedByDescending { it.box.right }
+            buildString {
+                var previous: Word? = null
+                for (word in rightToLeft) {
+                    previous?.let { prev ->
+                        val gap = prev.box.left - word.box.right
+                        append(if (gap > columnGapThreshold) "    " else " ")
+                    }
+                    append(word.text)
+                    previous = word
+                }
+            }
         }
     }
 
