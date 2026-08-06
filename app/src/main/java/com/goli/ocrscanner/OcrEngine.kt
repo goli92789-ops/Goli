@@ -2,7 +2,7 @@ package com.goli.ocrscanner
 
 import android.content.Context
 import android.graphics.Bitmap
-import cz.adaptech.tesseract4android.TessBaseAPI
+import com.googlecode.tesseract.android.TessBaseAPI
 
 /** Thin wrapper around Tesseract4Android for one-shot text recognition. */
 class OcrEngine(private val context: Context) {
@@ -16,7 +16,7 @@ class OcrEngine(private val context: Context) {
                 return ""
             }
             tess.setImage(bitmap)
-            return tess.utF8Text.orEmpty()
+            return tess.getUTF8Text().orEmpty()
         } finally {
             tess.recycle()
         }
