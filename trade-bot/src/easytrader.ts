@@ -93,7 +93,11 @@ async function readLastPrice(page: Page): Promise<number> {
   });
 }
 
-async function submitOrder(page: Page, action: OrderAction, quantity: number): Promise<string> {
+async function submitOrder(
+  page: Page,
+  action: OrderAction,
+  quantity: number
+): Promise<{ screenshotPath: string; confirmed: boolean }> {
   return withStepScreenshotOnError(page, "ثبت سفارش", async () => {
     const buttonLabel = action === "buy" ? "خرید" : "فروش";
     await page.getByText(buttonLabel, { exact: true }).click();
@@ -108,16 +112,19 @@ async function submitOrder(page: Page, action: OrderAction, quantity: number): P
     await submitButton.waitFor({ state: "visible", timeout: 10000 });
     await submitButton.click();
 
-    // Unverified: some brokerage UIs show a final confirmation dialog after
-    // submit. If one appears, click a likely confirm button; if not, this is
-    // a harmless no-op.
-    const confirmButton = page.getByRole("button", { name: /تایید|تأیید|بله/ });
-    if (await confirmButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await confirmButton.click();
-    }
+    // Submitting doesn't open a confirmation dialog -- the platform sends the
+    // order straight to the exchange and shows a toast like "در سبد خرید ثبت شد"
+    // ("در سبد فروش ثبت شد" for sell). That toast is the real success signal.
+    const toastPattern = action === "buy" ? /در سبد خرید ثبت شد/ : /در سبد فروش ثبت شد/;
+    const confirmed = await page
+      .getByText(toastPattern)
+      .waitFor({ state: "visible", timeout: 8000 })
+      .then(() => true)
+      .catch(() => false);
 
-    await page.waitForTimeout(2000);
-    return await screenshot(page, `RESULT_${action}`);
+    await page.waitForTimeout(1500);
+    const screenshotPath = await screenshot(page, `RESULT_${action}`);
+    return { screenshotPath, confirmed };
   });
 }
 
@@ -144,14 +151,17 @@ export async function placeScheduledOrder(
       );
     }
 
-    const screenshotPath = await submitOrder(page, action, quantity);
+    const { screenshotPath, confirmed } = await submitOrder(page, action, quantity);
 
     return {
-      success: true,
+      success: confirmed,
       message:
-        `سفارش ${action === "buy" ? "خرید" : "فروش"} ${quantity} واحد ${symbol} ` +
-        `به قیمت هر واحد ${priceRial.toLocaleString("fa-IR")} ریال ارسال شد ` +
-        `(≈ ${(quantity * priceRial / 10).toLocaleString("fa-IR")} تومان).`,
+        (confirmed
+          ? `سفارش ${action === "buy" ? "خرید" : "فروش"} ${quantity} واحد ${symbol} ` +
+            `به قیمت هر واحد ${priceRial.toLocaleString("fa-IR")} ریال ثبت شد ` +
+            `(≈ ${(quantity * priceRial / 10).toLocaleString("fa-IR")} تومان).`
+          : `دکمه‌ی ارسال زده شد ولی پیام «در سبد ${action === "buy" ? "خرید" : "فروش"} ثبت شد» دیده نشد -- ` +
+            `اسکرین‌شات را چک کنید، ممکن است سفارش ثبت نشده باشد.`),
       screenshotPath,
     };
   } catch (err) {
