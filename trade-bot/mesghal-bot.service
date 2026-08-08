@@ -1,0 +1,14 @@
+[Unit]
+Description=Mesghal scheduled trade bot
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/trade-bot
+ExecStart=/usr/bin/node /root/trade-bot/dist/index.js
+Restart=always
+RestartSec=10
+EnvironmentFile=/root/trade-bot/.env
+
+[Install]
+WantedBy=multi-user.target
