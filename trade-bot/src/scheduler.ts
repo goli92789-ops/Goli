@@ -11,7 +11,7 @@ export interface ScheduledJob {
   chatId: number;
   action: OrderAction;
   symbol: string;
-  amountToman: number;
+  quantity: number;
   fireAt: string; // ISO timestamp
   status: "pending" | "done" | "failed";
   resultMessage?: string;
@@ -59,7 +59,7 @@ async function runDueJobs(): Promise<void> {
   const due = jobs.filter((j) => j.status === "pending" && new Date(j.fireAt).getTime() <= now);
 
   for (const job of due) {
-    const result = await placeScheduledOrder(job.action, job.symbol, job.amountToman);
+    const result = await placeScheduledOrder(job.action, job.symbol, job.quantity);
     job.status = result.success ? "done" : "failed";
     job.resultMessage = result.message;
     saveJobs();

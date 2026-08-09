@@ -131,7 +131,7 @@ async function submitOrder(
 export async function placeScheduledOrder(
   action: OrderAction,
   symbol: string,
-  amountToman: number
+  quantity: number
 ): Promise<OrderResult> {
   const browser: Browser = await chromium.launch({ headless: config.headless });
   try {
@@ -140,26 +140,23 @@ export async function placeScheduledOrder(
     await login(page);
     await openSymbol(page, symbol);
 
-    const priceRial = await readLastPrice(page);
-    const amountRial = amountToman * 10;
-    const quantity = Math.floor(amountRial / priceRial);
-
-    if (quantity < 1) {
-      throw new Error(
-        `مبلغ ${amountToman.toLocaleString("fa-IR")} تومان کمتر از قیمت یک واحد ` +
-          `(${priceRial.toLocaleString("fa-IR")} ریال) است -- حتی یک واحد هم نمی‌شود خرید.`
-      );
-    }
+    // Best-effort only: used purely to show an approximate Toman total in the
+    // report, never to compute the quantity. A failed price read must not
+    // block placing the order.
+    const priceRial = await readLastPrice(page).catch(() => null);
 
     const { screenshotPath, confirmed } = await submitOrder(page, action, quantity);
+
+    const approxTotal =
+      priceRial !== null
+        ? ` (≈ ${((quantity * priceRial) / 10).toLocaleString("fa-IR")} تومان)`
+        : "";
 
     return {
       success: confirmed,
       message:
         (confirmed
-          ? `سفارش ${action === "buy" ? "خرید" : "فروش"} ${quantity} واحد ${symbol} ` +
-            `به قیمت هر واحد ${priceRial.toLocaleString("fa-IR")} ریال ثبت شد ` +
-            `(≈ ${(quantity * priceRial / 10).toLocaleString("fa-IR")} تومان).`
+          ? `سفارش ${action === "buy" ? "خرید" : "فروش"} ${quantity} واحد ${symbol} ثبت شد${approxTotal}.`
           : `دکمه‌ی ارسال زده شد ولی پیام «در سبد ${action === "buy" ? "خرید" : "فروش"} ثبت شد» دیده نشد -- ` +
             `اسکرین‌شات را چک کنید، ممکن است سفارش ثبت نشده باشد.`),
       screenshotPath,

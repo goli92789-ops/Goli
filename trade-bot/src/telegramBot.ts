@@ -5,10 +5,10 @@ import { OrderAction } from "./easytrader";
 
 const HELP_TEXT = `دستورها:
 
-مثقال خرید 2000000 13:00
-مثقال فروش 2000000 13:00
+مثقال خرید 70 13:00
+مثقال فروش 70 13:00
 
-یعنی: نماد، بعد خرید یا فروش، بعد مبلغ به تومان، بعد ساعت (HH:MM، ساعت تهران).
+یعنی: نماد، بعد خرید یا فروش، بعد تعداد واحد، بعد ساعت (HH:MM، ساعت تهران).
 اگر آن ساعت امروز گذشته باشد، برای فردا همان ساعت زمان‌بندی می‌شود.
 
 /status -- فهرست سفارش‌های زمان‌بندی‌شده‌ی در انتظار`;
@@ -64,8 +64,8 @@ export function startTelegramBot(): TelegramBot {
       }
       const lines = pending.map(
         (j) =>
-          `#${j.id}: ${j.action === "buy" ? "خرید" : "فروش"} ${j.symbol} ` +
-          `${j.amountToman.toLocaleString("fa-IR")} تومان در ${new Date(j.fireAt).toLocaleString("fa-IR")}`
+          `#${j.id}: ${j.action === "buy" ? "خرید" : "فروش"} ${j.quantity} واحد ${j.symbol} ` +
+          `در ${new Date(j.fireAt).toLocaleString("fa-IR")}`
       );
       bot.sendMessage(chatId, lines.join("\n"));
       return;
@@ -77,9 +77,9 @@ export function startTelegramBot(): TelegramBot {
       return;
     }
 
-    const [, symbol, actionWord, amountStr, hourStr, minuteStr] = match;
+    const [, symbol, actionWord, quantityStr, hourStr, minuteStr] = match;
     const action: OrderAction = actionWord === "خرید" ? "buy" : "sell";
-    const amountToman = parseInt(amountStr, 10);
+    const quantity = parseInt(quantityStr, 10);
     const hour = parseInt(hourStr, 10);
     const minute = parseInt(minuteStr, 10);
 
@@ -88,13 +88,18 @@ export function startTelegramBot(): TelegramBot {
       return;
     }
 
+    if (quantity < 1) {
+      bot.sendMessage(chatId, "تعداد واحد باید حداقل ۱ باشد.");
+      return;
+    }
+
     const fireAt = nextOccurrence(hour, minute);
-    const job = addJob({ chatId, action, symbol, amountToman, fireAt: fireAt.toISOString() });
+    const job = addJob({ chatId, action, symbol, quantity, fireAt: fireAt.toISOString() });
 
     bot.sendMessage(
       chatId,
       `ثبت شد (#${job.id}):\n` +
-        `${action === "buy" ? "خرید" : "فروش"} ${amountToman.toLocaleString("fa-IR")} تومان ${symbol}\n` +
+        `${action === "buy" ? "خرید" : "فروش"} ${quantity} واحد ${symbol}\n` +
         `زمان اجرا: ${fireAt.toLocaleString("fa-IR")}`
     );
   });
