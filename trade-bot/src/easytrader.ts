@@ -49,6 +49,21 @@ async function screenshot(page: Page, step: string): Promise<string> {
   return file;
 }
 
+/** Saves the full rendered HTML for manual inspection (grep on the server) when a selector keeps missing. */
+async function dumpHtml(page: Page, step: string): Promise<string | null> {
+  try {
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+    const file = path.join(SCREENSHOT_DIR, `${Date.now()}_${slugify(step)}.html`);
+    const html = await page.content();
+    fs.writeFileSync(file, html, "utf-8");
+    console.log(`HTML صفحه ذخیره شد: ${file}`);
+    return file;
+  } catch (err) {
+    console.error(`ذخیره‌ی HTML «${step}» شکست خورد:`, err);
+    return null;
+  }
+}
+
 /** Never lets a failed error-screenshot hide the real error that caused it. */
 async function screenshotBestEffort(page: Page, step: string): Promise<string | null> {
   try {
@@ -211,6 +226,7 @@ async function submitOrder(
     await page.getByText(buttonLabel, { exact: true }).click();
 
     await screenshotBestEffort(page, `ORDER_SHEET_OPEN_${action}`);
+    await dumpHtml(page, `ORDER_SHEET_OPEN_${action}`);
 
     // Order sheet: quantity is the first VISIBLE input, price (with a lock
     // icon) is the second. Plain input.first() kept resolving to a hidden
