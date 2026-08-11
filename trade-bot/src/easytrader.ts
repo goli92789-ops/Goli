@@ -212,11 +212,12 @@ async function submitOrder(
 
     await screenshotBestEffort(page, `ORDER_SHEET_OPEN_${action}`);
 
-    // Order sheet: quantity is the first input, price (with a lock icon) is
-    // the second. Neither getByLabel nor input[type="..."] guesses matched --
-    // the field very likely has no explicit "type" attribute at all (the CSS
-    // attribute selector requires it literally), so match any <input>.
-    const quantityField = page.locator("input").first();
+    // Order sheet: quantity is the first VISIBLE input, price (with a lock
+    // icon) is the second. Plain input.first() kept resolving to a hidden
+    // input earlier in the DOM (confirmed by the error log: "locator
+    // resolved to hidden" 21 times) -- Playwright's :visible pseudo-class
+    // filters those out.
+    const quantityField = page.locator("input:visible").first();
     await quantityField.waitFor({ state: "visible", timeout: 10000 });
     await quantityField.fill(String(quantity));
 
