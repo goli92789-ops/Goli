@@ -54,9 +54,28 @@ async function withStepScreenshotOnError<T>(
   }
 }
 
+/** Retries a flaky, side-effect-free step (like loading a page) a few times before giving up. */
+async function withRetries<T>(attempts: number, action: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await action();
+    } catch (err) {
+      lastError = err;
+      console.log(`تلاش ${attempt} از ${attempts} شکست خورد: ${(err as Error).message}`);
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function login(page: Page): Promise<void> {
   await withStepScreenshotOnError(page, "ورود به سایت", async () => {
-    await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded" });
+    // The network to login.emofid.com is occasionally slow/flaky; retrying a
+    // page load is harmless (unlike retrying the order submit further down).
+    await withRetries(3, () => page.goto(LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 30000 }));
 
     // Username field: no confirmed selector yet, falls back through a few guesses.
     const usernameField = page
