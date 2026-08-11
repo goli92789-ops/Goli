@@ -1,4 +1,4 @@
-import { chromium, Browser, Page } from "playwright";
+import { chromium, devices, Browser, Page } from "playwright";
 import fs from "fs";
 import path from "path";
 import { config } from "./config";
@@ -243,7 +243,11 @@ export async function placeScheduledOrder(
 ): Promise<OrderResult> {
   const browser: Browser = await chromium.launch({ headless: config.headless });
   try {
-    const page = await browser.newPage();
+    // A default desktop viewport made the site serve its completely
+    // different desktop layout (no bottom-nav "جستجو" tab at all) -- every
+    // selector here was built from the mobile UI, so emulate a phone.
+    const context = await browser.newContext({ ...devices["iPhone 13"] });
+    const page = await context.newPage();
 
     await login(page);
     await openSymbol(page, symbol);
