@@ -248,6 +248,11 @@ async function submitOrder(
     await submitButton.waitFor({ state: "visible", timeout: 10000 });
     await submitButton.click();
 
+    // Some banners/toasts show briefly and are gone before the checks below
+    // even start -- grab a quick snapshot right away too.
+    await page.waitForTimeout(700);
+    await screenshotBestEffort(page, `RIGHT_AFTER_SUBMIT_${action}`);
+
     // Submitting doesn't open a confirmation dialog -- the platform sends the
     // order straight to the exchange and shows a toast like "در سبد خرید ثبت شد"
     // ("در سبد فروش ثبت شد" for sell). That toast is the real success signal.
