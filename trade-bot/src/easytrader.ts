@@ -227,18 +227,48 @@ async function submitOrder(
     // and firing the input/change events a framework-controlled field
     // listens for.
     await quantityField.click();
+    await quantityField.focus();
     await screenshotBestEffort(page, `AFTER_CLICK_QUANTITY_${action}`);
 
-    try {
-      await quantityField.pressSequentially(String(quantity), { timeout: 10000 });
-    } catch (typeErr) {
-      console.log(`تایپ مستقیم عدد شکست خورد، روش جایگزین را امتحان می‌کنیم: ${(typeErr as Error).message}`);
+    const targetValue = String(quantity);
+    const readValue = () => quantityField.inputValue().catch(() => "?");
+
+    // Attempt 1: type through the locator, character by character with a
+    // real delay (some masked/custom inputs drop keystrokes sent too fast).
+    await quantityField.pressSequentially(targetValue, { timeout: 10000, delay: 150 }).catch((err) => {
+      console.log(`روش ۱ (pressSequentially) خطا داد: ${(err as Error).message}`);
+    });
+    console.log(`مقدار بعد از روش ۱: "${await readValue()}"`);
+
+    // Attempt 2: same idea but through page.keyboard directly, in case the
+    // locator-scoped key dispatch behaves differently than a real keyboard.
+    if ((await readValue()) !== targetValue) {
+      for (const digit of targetValue) {
+        await page.keyboard.press(digit);
+        await page.waitForTimeout(120);
+      }
+      console.log(`مقدار بعد از روش ۲ (page.keyboard): "${await readValue()}"`);
+    }
+
+    // Attempt 3: set .value via the native setter (bypasses any React-style
+    // wrapper that shadows a plain assignment) and fire a fuller set of
+    // events, including a synthetic keydown/keyup pair some libraries key
+    // their internal state off of.
+    if ((await readValue()) !== targetValue) {
       await quantityField.evaluate((el: HTMLInputElement, value: string) => {
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
         setter?.call(el, value);
+        el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true }));
         el.dispatchEvent(new Event("input", { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));
-      }, String(quantity));
+        el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+      }, targetValue);
+      console.log(`مقدار بعد از روش ۳ (JS setter): "${await readValue()}"`);
+    }
+
+    const finalValue = await readValue();
+    if (finalValue !== targetValue) {
+      console.log(`هشدار: بعد از هر سه روش، مقدار فیلد تعداد همچنان "${finalValue}" است، نه "${targetValue}".`);
     }
 
     await screenshotBestEffort(page, `AFTER_QUANTITY_${action}`);
