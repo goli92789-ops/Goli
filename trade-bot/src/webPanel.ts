@@ -31,6 +31,7 @@ function nextOccurrence(hour: number, minute: number): Date {
 
 function statusBadge(job: ScheduledJob): string {
   if (job.status === "pending") return `<span class="badge pending">در انتظار</span>`;
+  if (job.status === "running") return `<span class="badge pending">⏳ در حال اجرا</span>`;
   if (job.status === "done") return `<span class="badge done">✅ انجام شد</span>`;
   return `<span class="badge failed">❌ ناموفق</span>`;
 }
