@@ -263,8 +263,21 @@ async function submitOrder(
     const targetValue = String(quantity);
     const readValue = () => quantityField.inputValue().catch(() => "?");
 
+    // Typing methods below insert at the cursor rather than replacing --
+    // without clearing first, a leftover value (from the field's own
+    // default, or a partially-succeeded earlier attempt) could concatenate
+    // into something like "3260" instead of "60". Select-all + backspace
+    // before every attempt guarantees a clean slate regardless of what's
+    // currently in the field.
+    const clearField = async () => {
+      await quantityField.click();
+      await quantityField.press("Control+A").catch(() => {});
+      await quantityField.press("Backspace").catch(() => {});
+    };
+
     // Attempt 1: type through the locator, character by character with a
     // real delay (some masked/custom inputs drop keystrokes sent too fast).
+    await clearField();
     await quantityField.pressSequentially(targetValue, { timeout: 10000, delay: 150 }).catch((err) => {
       console.log(`روش ۱ (pressSequentially) خطا داد: ${(err as Error).message}`);
     });
@@ -273,6 +286,7 @@ async function submitOrder(
     // Attempt 2: same idea but through page.keyboard directly, in case the
     // locator-scoped key dispatch behaves differently than a real keyboard.
     if ((await readValue()) !== targetValue) {
+      await clearField();
       for (const digit of targetValue) {
         await page.keyboard.press(digit);
         await page.waitForTimeout(120);
