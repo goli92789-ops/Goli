@@ -123,12 +123,17 @@ async function login(page: Page): Promise<void> {
 
     await passwordField.fill(config.mofidPassword);
 
-    await page.getByRole("button", { name: "ورود" }).click();
+    const afterFillShot = await screenshotBestEffort(page, "AFTER_FILL");
+    console.log(`اسکرین‌شات بعد از پر کردن فرم (قبل از ارسال): ${afterFillShot ?? "ناموفق"}`);
 
-    // Wait for navigation away from the login page as confirmation.
-    await page.waitForURL((url) => !url.hostname.includes("login.emofid.com"), {
-      timeout: 20000,
-    });
+    await page.getByRole("button", { name: "ورود", exact: true }).click();
+
+    // Hostname changing alone isn't a strong enough signal (an SPA route
+    // change or a failed-login reload can also satisfy it) -- also require
+    // the password field itself to actually disappear. If credentials were
+    // wrong, this step now fails loudly instead of reporting a false success.
+    await page.waitForURL((url) => !url.hostname.includes("login.emofid.com"), { timeout: 20000 });
+    await passwordField.waitFor({ state: "detached", timeout: 20000 });
 
     // The app is a single-page app -- give it time to finish loading after
     // the redirect before anything tries to click on it.
