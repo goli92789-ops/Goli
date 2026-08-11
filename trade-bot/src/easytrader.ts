@@ -11,7 +11,21 @@ export type OrderAction = "buy" | "sell";
 export interface OrderResult {
   success: boolean;
   message: string;
-  screenshotPath: string;
+  screenshotPaths: string[];
+}
+
+/** Every screenshot/HTML dump is named "{timestamp}_...", so everything written during one run can be found after the fact without threading a collector through every step function. */
+function collectDebugFilesSince(startTime: number): string[] {
+  if (!fs.existsSync(SCREENSHOT_DIR)) return [];
+  return fs
+    .readdirSync(SCREENSHOT_DIR)
+    .map((name) => {
+      const match = name.match(/^(\d+)_/);
+      return match ? { name, time: parseInt(match[1], 10) } : null;
+    })
+    .filter((entry): entry is { name: string; time: number } => entry !== null && entry.time >= startTime)
+    .sort((a, b) => a.time - b.time)
+    .map((entry) => path.join(SCREENSHOT_DIR, entry.name));
 }
 
 /**
@@ -220,7 +234,7 @@ async function submitOrder(
   page: Page,
   action: OrderAction,
   quantity: number
-): Promise<{ screenshotPath: string; confirmed: boolean; errorReason?: string }> {
+): Promise<{ confirmed: boolean; errorReason?: string }> {
   return withStepScreenshotOnError(page, "ثبت سفارش", async () => {
     const buttonLabel = action === "buy" ? "خرید" : "فروش";
     await page.getByText(buttonLabel, { exact: true }).click();
@@ -334,8 +348,8 @@ async function submitOrder(
     }
 
     await page.waitForTimeout(1500);
-    const screenshotPath = await screenshot(page, `RESULT_${action}`);
-    return { screenshotPath, confirmed, errorReason };
+    await screenshot(page, `RESULT_${action}`);
+    return { confirmed, errorReason };
   });
 }
 
@@ -344,6 +358,7 @@ export async function placeScheduledOrder(
   symbol: string,
   quantity: number
 ): Promise<OrderResult> {
+  const startTime = Date.now();
   const browser: Browser = await chromium.launch({ headless: config.headless });
   try {
     // A default desktop viewport made the site serve its completely
@@ -360,7 +375,7 @@ export async function placeScheduledOrder(
     // block placing the order.
     const priceRial = await readLastPrice(page).catch(() => null);
 
-    const { screenshotPath, confirmed, errorReason } = await submitOrder(page, action, quantity);
+    const { confirmed, errorReason } = await submitOrder(page, action, quantity);
 
     const approxTotal =
       priceRial !== null
@@ -378,14 +393,14 @@ export async function placeScheduledOrder(
         `اسکرین‌شات را چک کنید، ممکن است سفارش ثبت نشده باشد.`;
     }
 
-    return { success: confirmed, message, screenshotPath };
+    return { success: confirmed, message, screenshotPaths: collectDebugFilesSince(startTime) };
   } catch (err) {
     const page = browser.contexts()[0]?.pages()[0] ?? null;
-    const screenshotPath = (page ? await screenshotBestEffort(page, "ERROR_final") : null) ?? "";
+    if (page) await screenshotBestEffort(page, "ERROR_final");
     return {
       success: false,
       message: `خطا: ${(err as Error).message}`,
-      screenshotPath,
+      screenshotPaths: collectDebugFilesSince(startTime),
     };
   } finally {
     await browser.close();

@@ -15,7 +15,7 @@ export interface ScheduledJob {
   createdAt: string; // ISO timestamp
   status: "pending" | "running" | "done" | "failed";
   resultMessage?: string;
-  screenshotPath?: string;
+  screenshotPaths?: string[];
 }
 
 let jobs: ScheduledJob[] = [];
@@ -51,6 +51,17 @@ export function listAllJobs(): ScheduledJob[] {
   return [...jobs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/** Returns true if a job with this id existed and was removed. */
+export function deleteJob(id: string): boolean {
+  const before = jobs.length;
+  jobs = jobs.filter((j) => j.id !== id);
+  if (jobs.length !== before) {
+    saveJobs();
+    return true;
+  }
+  return false;
+}
+
 async function runDueJobs(): Promise<void> {
   const now = Date.now();
   const due = jobs.filter((j) => j.status === "pending" && new Date(j.fireAt).getTime() <= now);
@@ -64,7 +75,7 @@ async function runDueJobs(): Promise<void> {
     const result = await placeScheduledOrder(job.action, job.symbol, job.quantity);
     job.status = result.success ? "done" : "failed";
     job.resultMessage = result.message;
-    job.screenshotPath = result.screenshotPath;
+    job.screenshotPaths = result.screenshotPaths;
     saveJobs();
   }
 }

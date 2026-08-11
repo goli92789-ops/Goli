@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import { config } from "./config";
-import { addJob, listAllJobs, ScheduledJob } from "./scheduler";
+import { addJob, deleteJob, listAllJobs, ScheduledJob } from "./scheduler";
 
 const SCREENSHOT_DIR = path.join(__dirname, "..", "screenshots");
 
@@ -36,14 +36,25 @@ function statusBadge(job: ScheduledJob): string {
   return `<span class="badge failed">❌ ناموفق</span>`;
 }
 
+/** Turns "1786448617000_ORDER_SHEET_OPEN_buy.png" into a short readable label. */
+function screenshotLabel(filePath: string): string {
+  const base = path.basename(filePath);
+  const withoutTimestamp = base.replace(/^\d+_/, "");
+  const withoutExt = withoutTimestamp.replace(/\.(png|html)$/, "");
+  return withoutExt || base;
+}
+
 function renderPage(message: string | null): string {
   const jobs = listAllJobs();
   const rows = jobs
     .map((j) => {
       const fireAt = new Date(j.fireAt).toLocaleString("fa-IR");
-      const screenshotLink = j.screenshotPath
-        ? `<a href="/screenshots/${encodeURIComponent(path.basename(j.screenshotPath))}" target="_blank">مشاهده</a>`
-        : "-";
+      const screenshotLinks = (j.screenshotPaths ?? [])
+        .map(
+          (p) =>
+            `<a href="/screenshots/${encodeURIComponent(path.basename(p))}" target="_blank">${screenshotLabel(p)}</a>`
+        )
+        .join("<br/>") || "-";
       return `<tr>
         <td>${j.action === "buy" ? "خرید" : "فروش"}</td>
         <td>${j.symbol}</td>
@@ -51,7 +62,12 @@ function renderPage(message: string | null): string {
         <td>${fireAt}</td>
         <td>${statusBadge(j)}</td>
         <td>${j.resultMessage ?? "-"}</td>
-        <td>${screenshotLink}</td>
+        <td>${screenshotLinks}</td>
+        <td>
+          <form method="POST" action="/order/${j.id}/delete" onsubmit="return confirm('حذف شود؟');">
+            <button type="submit" class="delete-btn">حذف</button>
+          </form>
+        </td>
       </tr>`;
     })
     .join("\n");
@@ -77,6 +93,8 @@ function renderPage(message: string | null): string {
   .badge.pending { background: #fff3cd; color: #856404; }
   .badge.done { background: #d4edda; color: #155724; }
   .badge.failed { background: #f8d7da; color: #721c24; }
+  td form { background: none; padding: 0; box-shadow: none; }
+  .delete-btn { margin-top: 0; width: auto; padding: 6px 12px; background: #c0392b; font-size: .8rem; }
 </style>
 </head>
 <body>
@@ -103,10 +121,10 @@ function renderPage(message: string | null): string {
 
   <table>
     <thead>
-      <tr><th>نوع</th><th>نماد</th><th>تعداد</th><th>زمان اجرا</th><th>وضعیت</th><th>پیام</th><th>اسکرین‌شات</th></tr>
+      <tr><th>نوع</th><th>نماد</th><th>تعداد</th><th>زمان اجرا</th><th>وضعیت</th><th>پیام</th><th>اسکرین‌شات‌ها</th><th></th></tr>
     </thead>
     <tbody>
-      ${rows || `<tr><td colspan="7">هنوز سفارشی ثبت نشده.</td></tr>`}
+      ${rows || `<tr><td colspan="8">هنوز سفارشی ثبت نشده.</td></tr>`}
     </tbody>
   </table>
 </body>
@@ -153,6 +171,12 @@ export function startWebPanel(): void {
       `${fireAt.toLocaleString("fa-IR")} (#${job.id})`;
     // Redirect (not render) so refreshing the result page re-fetches "/" via
     // GET instead of the browser resubmitting this POST and duplicating the order.
+    res.redirect("/?msg=" + encodeURIComponent(message));
+  });
+
+  app.post("/order/:id/delete", (req, res) => {
+    const removed = deleteJob(req.params.id);
+    const message = removed ? "سفارش حذف شد." : "سفارشی با این شناسه پیدا نشد.";
     res.redirect("/?msg=" + encodeURIComponent(message));
   });
 
