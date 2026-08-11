@@ -24,8 +24,18 @@ export interface OrderResult {
 async function screenshot(page: Page, step: string): Promise<string> {
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
   const file = path.join(SCREENSHOT_DIR, `${Date.now()}_${step}.png`);
-  await page.screenshot({ path: file, fullPage: true });
+  await page.screenshot({ path: file, fullPage: true, timeout: 10_000 });
   return file;
+}
+
+/** Never lets a failed error-screenshot hide the real error that caused it. */
+async function screenshotBestEffort(page: Page, step: string): Promise<string | null> {
+  try {
+    return await screenshot(page, step);
+  } catch (screenshotErr) {
+    console.error(`گرفتن اسکرین‌شات «${step}» هم شکست خورد:`, screenshotErr);
+    return null;
+  }
 }
 
 async function withStepScreenshotOnError<T>(
@@ -36,10 +46,9 @@ async function withStepScreenshotOnError<T>(
   try {
     return await action();
   } catch (err) {
-    const shot = await screenshot(page, `FAILED_${step}`);
-    throw new Error(
-      `مرحله «${step}» شکست خورد: ${(err as Error).message}\nاسکرین‌شات لحظه‌ی خطا: ${shot}`
-    );
+    const shot = await screenshotBestEffort(page, `FAILED_${step}`);
+    const shotNote = shot ? `\nاسکرین‌شات لحظه‌ی خطا: ${shot}` : "\n(گرفتن اسکرین‌شات هم ناموفق بود)";
+    throw new Error(`مرحله «${step}» شکست خورد: ${(err as Error).message}${shotNote}`);
   }
 }
 
@@ -163,7 +172,7 @@ export async function placeScheduledOrder(
     };
   } catch (err) {
     const page = browser.contexts()[0]?.pages()[0] ?? null;
-    const screenshotPath = page ? await screenshot(page, "ERROR_final") : "";
+    const screenshotPath = (page ? await screenshotBestEffort(page, "ERROR_final") : null) ?? "";
     return {
       success: false,
       message: `خطا: ${(err as Error).message}`,
