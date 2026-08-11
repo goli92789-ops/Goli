@@ -118,8 +118,9 @@ export function startWebPanel(): void {
   app.use(express.urlencoded({ extended: false }));
   app.use("/screenshots", express.static(SCREENSHOT_DIR));
 
-  app.get("/", (_req, res) => {
-    res.send(renderPage(null));
+  app.get("/", (req, res) => {
+    const message = typeof req.query.msg === "string" ? req.query.msg : null;
+    res.send(renderPage(message));
   });
 
   app.post("/order", (req, res) => {
@@ -132,19 +133,19 @@ export function startWebPanel(): void {
     const minute = parseInt(minuteStr, 10);
 
     if (!symbol || !Number.isFinite(quantity) || quantity < 1 || !Number.isFinite(hour) || !Number.isFinite(minute)) {
-      res.status(400).send(renderPage("ورودی نامعتبر بود -- دوباره چک کنید."));
+      res.redirect("/?msg=" + encodeURIComponent("ورودی نامعتبر بود -- دوباره چک کنید."));
       return;
     }
 
     const fireAt = nextOccurrence(hour, minute);
     const job = addJob({ action, symbol, quantity, fireAt: fireAt.toISOString() });
 
-    res.send(
-      renderPage(
-        `ثبت شد: ${action === "buy" ? "خرید" : "فروش"} ${quantity} واحد ${symbol} در ` +
-          `${fireAt.toLocaleString("fa-IR")} (#${job.id})`
-      )
-    );
+    const message =
+      `ثبت شد: ${action === "buy" ? "خرید" : "فروش"} ${quantity} واحد ${symbol} در ` +
+      `${fireAt.toLocaleString("fa-IR")} (#${job.id})`;
+    // Redirect (not render) so refreshing the result page re-fetches "/" via
+    // GET instead of the browser resubmitting this POST and duplicating the order.
+    res.redirect("/?msg=" + encodeURIComponent(message));
   });
 
   app.listen(config.panelPort, () => {
