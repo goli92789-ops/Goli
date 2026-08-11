@@ -1,10 +1,12 @@
-import { chromium, devices, Browser, Page } from "playwright";
+import { chromium, devices, Browser, BrowserContext, Page } from "playwright";
 import fs from "fs";
 import path from "path";
 import { config } from "./config";
 
 const LOGIN_URL = "https://login.emofid.com";
 const SCREENSHOT_DIR = path.join(__dirname, "..", "screenshots");
+const DATA_DIR = path.join(__dirname, "..", "data");
+const SESSION_FILE = path.join(DATA_DIR, "session.json");
 
 export type OrderAction = "buy" | "sell";
 
@@ -119,11 +121,24 @@ async function withRetries<T>(attempts: number, action: () => Promise<T>): Promi
   throw lastError;
 }
 
-async function login(page: Page): Promise<void> {
+async function login(page: Page, context: BrowserContext): Promise<void> {
   await withStepScreenshotOnError(page, "ورود به سایت", async () => {
     // The network to login.emofid.com is occasionally slow/flaky; retrying a
     // page load is harmless (unlike retrying the order submit further down).
     await withRetries(3, () => page.goto(LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 30000 }));
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+
+    // A restored session (see SESSION_FILE below) can land straight in the
+    // app without ever showing the login form -- the real app doesn't ask
+    // to log in again every time either, unlike a brand-new browser profile.
+    const alreadyLoggedIn = await page
+      .getByText("جستجو", { exact: true })
+      .isVisible({ timeout: 6000 })
+      .catch(() => false);
+    if (alreadyLoggedIn) {
+      console.log("نشست ذخیره‌شده هنوز معتبر بود -- از پر کردن فرم ورود صرف‌نظر شد.");
+      return;
+    }
 
     const beforeFillShot = await screenshotBestEffort(page, "BEFORE_FILL");
     console.log(`اسکرین‌شات قبل از پر کردن فرم: ${beforeFillShot ?? "ناموفق"}`);
@@ -200,7 +215,20 @@ async function login(page: Page): Promise<void> {
 
     const shot = await screenshotBestEffort(page, "AFTER_LOGIN");
     console.log(`اسکرین‌شات بعد از ورود: ${shot ?? "ناموفق"}`);
+
+    await saveSession(context);
   });
+}
+
+/** Best-effort: a failed session save shouldn't fail an otherwise-successful login. */
+async function saveSession(context: BrowserContext): Promise<void> {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    await context.storageState({ path: SESSION_FILE });
+    console.log("نشست ورود برای اجراهای بعدی ذخیره شد.");
+  } catch (err) {
+    console.error("ذخیره‌ی نشست ورود شکست خورد:", err);
+  }
 }
 
 async function openSymbol(page: Page, symbol: string): Promise<void> {
@@ -378,10 +406,15 @@ export async function placeScheduledOrder(
     // A default desktop viewport made the site serve its completely
     // different desktop layout (no bottom-nav "جستجو" tab at all) -- every
     // selector here was built from the mobile UI, so emulate a phone.
-    const context = await browser.newContext({ ...devices["iPhone 13"] });
+    // A previously-saved session (see SESSION_FILE) is loaded here so login()
+    // can skip the login form entirely, same as the real app staying logged in.
+    const context = await browser.newContext({
+      ...devices["iPhone 13"],
+      ...(fs.existsSync(SESSION_FILE) ? { storageState: SESSION_FILE } : {}),
+    });
     const page = await context.newPage();
 
-    await login(page);
+    await login(page, context);
     await openSymbol(page, symbol);
 
     // Best-effort only: used purely to show an approximate Toman total in the
