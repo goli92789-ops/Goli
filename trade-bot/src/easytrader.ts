@@ -141,6 +141,34 @@ async function login(page: Page): Promise<void> {
       console.log("صفحه بعد از ورود کاملاً بی‌کار (idle) نشد، ادامه می‌دهیم.");
     });
 
+    // Even after a genuine login, the browser sometimes lands on the
+    // easytrader.ir marketing page again (an intermediate redirect hop)
+    // instead of the authenticated app. Only the bottom-nav "جستجو" tab
+    // confirms we're actually in the app; if it's missing, click through
+    // the marketing page's login button again (session should now carry
+    // over) up to twice more before giving up.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const inApp = await page
+        .getByText("جستجو", { exact: true })
+        .isVisible({ timeout: 8000 })
+        .catch(() => false);
+      if (inApp) break;
+
+      console.log(`اپ اصلی هنوز دیده نشد (تلاش ${attempt} از 3) -- احتمالاً دوباره صفحه‌ی تبلیغاتی.`);
+      await screenshotBestEffort(page, `STILL_MARKETING_${attempt}`);
+      if (attempt === 3) {
+        throw new Error("بعد از ورود، اپ اصلی (تب «جستجو») پیدا نشد -- احتمالاً هنوز روی صفحه‌ی تبلیغاتی است.");
+      }
+
+      const loginButton = page
+        .getByRole("link", { name: "ورود", exact: true })
+        .or(page.getByRole("button", { name: "ورود", exact: true }));
+      if (await loginButton.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+        await loginButton.first().click();
+        await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+      }
+    }
+
     const shot = await screenshotBestEffort(page, "AFTER_LOGIN");
     console.log(`اسکرین‌شات بعد از ورود: ${shot ?? "ناموفق"}`);
   });
