@@ -1,7 +1,7 @@
 import { startScheduler } from "./scheduler";
-import { startTelegramBot } from "./telegramBot";
+import { startWebPanel } from "./webPanel";
 
 startScheduler();
-startTelegramBot();
+startWebPanel();
 
-console.log("ربات روشن شد و منتظر دستور در تلگرام است.");
+console.log("ربات روشن شد.");

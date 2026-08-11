@@ -13,7 +13,8 @@ function required(name: string): string {
 export const config = {
   mofidUsername: required("MOFID_USERNAME"),
   mofidPassword: required("MOFID_PASSWORD"),
-  telegramBotToken: required("TELEGRAM_BOT_TOKEN"),
-  telegramAllowedChatId: required("TELEGRAM_ALLOWED_CHAT_ID"),
+  panelUsername: required("PANEL_USERNAME"),
+  panelPassword: required("PANEL_PASSWORD"),
+  panelPort: parseInt(process.env.PANEL_PORT ?? "3000", 10),
   headless: process.env.HEADLESS !== "false",
 };

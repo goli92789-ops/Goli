@@ -8,19 +8,17 @@ const POLL_INTERVAL_MS = 15_000;
 
 export interface ScheduledJob {
   id: string;
-  chatId: number;
   action: OrderAction;
   symbol: string;
   quantity: number;
   fireAt: string; // ISO timestamp
+  createdAt: string; // ISO timestamp
   status: "pending" | "done" | "failed";
   resultMessage?: string;
+  screenshotPath?: string;
 }
 
-type ResultHandler = (job: ScheduledJob, screenshotPath: string) => void;
-
 let jobs: ScheduledJob[] = [];
-let resultHandler: ResultHandler | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
 
 function loadJobs(): void {
@@ -35,14 +33,11 @@ function saveJobs(): void {
   fs.writeFileSync(JOBS_FILE, JSON.stringify(jobs, null, 2));
 }
 
-export function onJobResult(handler: ResultHandler): void {
-  resultHandler = handler;
-}
-
-export function addJob(job: Omit<ScheduledJob, "id" | "status">): ScheduledJob {
+export function addJob(job: Pick<ScheduledJob, "action" | "symbol" | "quantity" | "fireAt">): ScheduledJob {
   const full: ScheduledJob = {
     ...job,
     id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    createdAt: new Date().toISOString(),
     status: "pending",
   };
   jobs.push(full);
@@ -50,8 +45,9 @@ export function addJob(job: Omit<ScheduledJob, "id" | "status">): ScheduledJob {
   return full;
 }
 
-export function listPendingJobs(chatId: number): ScheduledJob[] {
-  return jobs.filter((j) => j.chatId === chatId && j.status === "pending");
+/** Newest first, for the panel's history table. */
+export function listAllJobs(): ScheduledJob[] {
+  return [...jobs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 async function runDueJobs(): Promise<void> {
@@ -62,8 +58,8 @@ async function runDueJobs(): Promise<void> {
     const result = await placeScheduledOrder(job.action, job.symbol, job.quantity);
     job.status = result.success ? "done" : "failed";
     job.resultMessage = result.message;
+    job.screenshotPath = result.screenshotPath;
     saveJobs();
-    resultHandler?.(job, result.screenshotPath);
   }
 }
 
