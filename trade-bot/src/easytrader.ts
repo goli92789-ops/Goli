@@ -24,7 +24,9 @@ export interface OrderResult {
 async function screenshot(page: Page, step: string): Promise<string> {
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
   const file = path.join(SCREENSHOT_DIR, `${Date.now()}_${step}.png`);
-  await page.screenshot({ path: file, fullPage: true, timeout: 10_000 });
+  // Viewport-only (not fullPage): fullPage screenshots on a long/slow-loading
+  // page can hang waiting for every font/image on the page to settle.
+  await page.screenshot({ path: file, timeout: 10_000 });
   return file;
 }
 
@@ -72,6 +74,15 @@ async function login(page: Page): Promise<void> {
     await page.waitForURL((url) => !url.hostname.includes("login.emofid.com"), {
       timeout: 20000,
     });
+
+    // The app is a single-page app -- give it time to finish loading after
+    // the redirect before anything tries to click on it.
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+      console.log("صفحه بعد از ورود کاملاً بی‌کار (idle) نشد، ادامه می‌دهیم.");
+    });
+
+    const shot = await screenshotBestEffort(page, "AFTER_LOGIN");
+    console.log(`اسکرین‌شات بعد از ورود: ${shot ?? "ناموفق"}`);
   });
 }
 
