@@ -219,7 +219,27 @@ async function submitOrder(
     // filters those out.
     const quantityField = page.locator("input:visible").first();
     await quantityField.waitFor({ state: "visible", timeout: 10000 });
-    await quantityField.fill(String(quantity));
+
+    // fill() failed with "element is not editable" -- likely readonly and
+    // driven by a custom numeric keypad (the calculator icon next to it).
+    // Click to focus/open it, then try real keystrokes; if the field is
+    // truly readonly even to typing, fall back to setting the value via JS
+    // and firing the input/change events a framework-controlled field
+    // listens for.
+    await quantityField.click();
+    await screenshotBestEffort(page, `AFTER_CLICK_QUANTITY_${action}`);
+
+    try {
+      await quantityField.pressSequentially(String(quantity), { timeout: 10000 });
+    } catch (typeErr) {
+      console.log(`تایپ مستقیم عدد شکست خورد، روش جایگزین را امتحان می‌کنیم: ${(typeErr as Error).message}`);
+      await quantityField.evaluate((el: HTMLInputElement, value: string) => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+        setter?.call(el, value);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }, String(quantity));
+    }
 
     await screenshotBestEffort(page, `AFTER_QUANTITY_${action}`);
 
