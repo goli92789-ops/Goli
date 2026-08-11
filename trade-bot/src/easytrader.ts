@@ -300,28 +300,34 @@ async function submitOrder(
     await screenshotBestEffort(page, `RIGHT_AFTER_SUBMIT_${action}`);
 
     // Submitting doesn't open a confirmation dialog -- the platform sends the
-    // order straight to the exchange and shows a toast like "در سبد خرید ثبت شد"
-    // ("در سبد فروش ثبت شد" for sell). That toast is the real success signal.
+    // order straight to the exchange and shows either a success toast like
+    // "در سبد خرید ثبت شد" or a rejection banner (confirmed for real: zero
+    // balance shows "مانده کاربر کافی نیست"). Both are watched *concurrently*
+    // and with the same short timeout -- waiting on the success toast alone
+    // first used to let a dismissible error banner auto-hide before the
+    // error check even started, silently losing the real reason.
     const toastPattern = action === "buy" ? /در سبد خرید ثبت شد/ : /در سبد فروش ثبت شد/;
-    const confirmed = await page
-      .getByText(toastPattern)
-      .waitFor({ state: "visible", timeout: 8000 })
-      .then(() => true)
-      .catch(() => false);
+    const knownErrors: Array<[RegExp, string]> = [
+      [/مانده کاربر کافی نیست/, "موجودی/قدرت خرید حساب کافی نیست"],
+      [/سقف (خرید|فروش)/, "سفارش از سقف مجاز خرید/فروش بیشتر است"],
+    ];
 
-    // If it wasn't the success toast, check for known rejection banners
-    // (confirmed for real: submitting with zero balance shows "مانده کاربر
-    // کافی نیست" instead of failing silently or throwing) so the report
-    // says *why* instead of just "toast not seen".
+    const successLocator = page.getByText(toastPattern);
+    const errorLocators = knownErrors.map(([pattern]) => page.getByText(pattern));
+
+    await successLocator
+      .or(errorLocators[0])
+      .or(errorLocators[1])
+      .first()
+      .waitFor({ state: "visible", timeout: 8000 })
+      .catch(() => {});
+
+    const confirmed = await successLocator.isVisible().catch(() => false);
     let errorReason: string | undefined;
     if (!confirmed) {
-      const knownErrors: Array<[RegExp, string]> = [
-        [/مانده کاربر کافی نیست/, "موجودی/قدرت خرید حساب کافی نیست"],
-        [/سقف (خرید|فروش)/, "سفارش از سقف مجاز خرید/فروش بیشتر است"],
-      ];
-      for (const [pattern, reason] of knownErrors) {
-        if (await page.getByText(pattern).isVisible({ timeout: 2000 }).catch(() => false)) {
-          errorReason = reason;
+      for (let i = 0; i < errorLocators.length; i++) {
+        if (await errorLocators[i].isVisible().catch(() => false)) {
+          errorReason = knownErrors[i][1];
           break;
         }
       }
