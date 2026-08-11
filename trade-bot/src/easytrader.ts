@@ -210,10 +210,16 @@ async function submitOrder(
     const buttonLabel = action === "buy" ? "خرید" : "فروش";
     await page.getByText(buttonLabel, { exact: true }).click();
 
-    // Order sheet: quantity input is the first numeric text field in the sheet.
-    const quantityField = page.getByLabel("تعداد").or(page.locator('input[type="text"]').first());
+    await screenshotBestEffort(page, `ORDER_SHEET_OPEN_${action}`);
+
+    // Order sheet: quantity is the first input, price (with a lock icon) is
+    // the second -- getByLabel didn't resolve (label likely isn't a real
+    // HTML <label>), so just take the first numeric-ish input on the sheet.
+    const quantityField = page.locator('input[type="text"], input[type="tel"], input[type="number"]').first();
     await quantityField.waitFor({ state: "visible", timeout: 10000 });
     await quantityField.fill(String(quantity));
+
+    await screenshotBestEffort(page, `AFTER_QUANTITY_${action}`);
 
     const submitLabel = action === "buy" ? "ارسال خرید" : "ارسال فروش";
     const submitButton = page.getByRole("button", { name: submitLabel });
