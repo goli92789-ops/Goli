@@ -213,9 +213,10 @@ async function submitOrder(
     await screenshotBestEffort(page, `ORDER_SHEET_OPEN_${action}`);
 
     // Order sheet: quantity is the first input, price (with a lock icon) is
-    // the second -- getByLabel didn't resolve (label likely isn't a real
-    // HTML <label>), so just take the first numeric-ish input on the sheet.
-    const quantityField = page.locator('input[type="text"], input[type="tel"], input[type="number"]').first();
+    // the second. Neither getByLabel nor input[type="..."] guesses matched --
+    // the field very likely has no explicit "type" attribute at all (the CSS
+    // attribute selector requires it literally), so match any <input>.
+    const quantityField = page.locator("input").first();
     await quantityField.waitFor({ state: "visible", timeout: 10000 });
     await quantityField.fill(String(quantity));
 
