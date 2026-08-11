@@ -123,6 +123,13 @@ export function startWebPanel(): void {
     res.send(renderPage(message));
   });
 
+  // A stale bookmark/history entry or a plain page refresh on "/order" (left
+  // over from before POST /order started redirecting) would otherwise show a
+  // raw "Cannot GET /order" -- just send it home instead.
+  app.get("/order", (_req, res) => {
+    res.redirect("/");
+  });
+
   app.post("/order", (req, res) => {
     const symbol = String(req.body.symbol ?? "").trim();
     const action = req.body.action === "sell" ? "sell" : "buy";
