@@ -205,7 +205,7 @@ async function submitOrder(
   page: Page,
   action: OrderAction,
   quantity: number
-): Promise<{ screenshotPath: string; confirmed: boolean }> {
+): Promise<{ screenshotPath: string; confirmed: boolean; errorReason?: string }> {
   return withStepScreenshotOnError(page, "ثبت سفارش", async () => {
     const buttonLabel = action === "buy" ? "خرید" : "فروش";
     await page.getByText(buttonLabel, { exact: true }).click();
@@ -258,9 +258,27 @@ async function submitOrder(
       .then(() => true)
       .catch(() => false);
 
+    // If it wasn't the success toast, check for known rejection banners
+    // (confirmed for real: submitting with zero balance shows "مانده کاربر
+    // کافی نیست" instead of failing silently or throwing) so the report
+    // says *why* instead of just "toast not seen".
+    let errorReason: string | undefined;
+    if (!confirmed) {
+      const knownErrors: Array<[RegExp, string]> = [
+        [/مانده کاربر کافی نیست/, "موجودی/قدرت خرید حساب کافی نیست"],
+        [/سقف (خرید|فروش)/, "سفارش از سقف مجاز خرید/فروش بیشتر است"],
+      ];
+      for (const [pattern, reason] of knownErrors) {
+        if (await page.getByText(pattern).isVisible({ timeout: 2000 }).catch(() => false)) {
+          errorReason = reason;
+          break;
+        }
+      }
+    }
+
     await page.waitForTimeout(1500);
     const screenshotPath = await screenshot(page, `RESULT_${action}`);
-    return { screenshotPath, confirmed };
+    return { screenshotPath, confirmed, errorReason };
   });
 }
 
@@ -285,22 +303,25 @@ export async function placeScheduledOrder(
     // block placing the order.
     const priceRial = await readLastPrice(page).catch(() => null);
 
-    const { screenshotPath, confirmed } = await submitOrder(page, action, quantity);
+    const { screenshotPath, confirmed, errorReason } = await submitOrder(page, action, quantity);
 
     const approxTotal =
       priceRial !== null
         ? ` (≈ ${((quantity * priceRial) / 10).toLocaleString("fa-IR")} تومان)`
         : "";
 
-    return {
-      success: confirmed,
-      message:
-        (confirmed
-          ? `سفارش ${action === "buy" ? "خرید" : "فروش"} ${quantity} واحد ${symbol} ثبت شد${approxTotal}.`
-          : `دکمه‌ی ارسال زده شد ولی پیام «در سبد ${action === "buy" ? "خرید" : "فروش"} ثبت شد» دیده نشد -- ` +
-            `اسکرین‌شات را چک کنید، ممکن است سفارش ثبت نشده باشد.`),
-      screenshotPath,
-    };
+    let message: string;
+    if (confirmed) {
+      message = `سفارش ${action === "buy" ? "خرید" : "فروش"} ${quantity} واحد ${symbol} ثبت شد${approxTotal}.`;
+    } else if (errorReason) {
+      message = `سفارش رد شد: ${errorReason}.`;
+    } else {
+      message =
+        `دکمه‌ی ارسال زده شد ولی پیام «در سبد ${action === "buy" ? "خرید" : "فروش"} ثبت شد» دیده نشد -- ` +
+        `اسکرین‌شات را چک کنید، ممکن است سفارش ثبت نشده باشد.`;
+    }
+
+    return { success: confirmed, message, screenshotPath };
   } catch (err) {
     const page = browser.contexts()[0]?.pages()[0] ?? null;
     const screenshotPath = (page ? await screenshotBestEffort(page, "ERROR_final") : null) ?? "";
