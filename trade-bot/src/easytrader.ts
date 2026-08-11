@@ -21,9 +21,28 @@ export interface OrderResult {
  * the thrown error names the step and a screenshot of that exact moment is
  * saved, which is enough to fix the one broken selector without redoing the rest.
  */
+// Persian step names (with spaces) made 404s common when typed/pasted into a
+// phone browser -- screenshot filenames now use fixed ASCII slugs instead.
+// Messages shown to the user still use the Persian step names.
+const STEP_SLUGS: Record<string, string> = {
+  "ورود به سایت": "login",
+  "جستجوی نماد": "search-symbol",
+  "خواندن قیمت": "read-price",
+  "ثبت سفارش": "submit-order",
+};
+
+function slugify(step: string): string {
+  let result = step;
+  for (const [persian, slug] of Object.entries(STEP_SLUGS)) {
+    result = result.split(persian).join(slug);
+  }
+  result = result.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return result || "step";
+}
+
 async function screenshot(page: Page, step: string): Promise<string> {
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
-  const file = path.join(SCREENSHOT_DIR, `${Date.now()}_${step}.png`);
+  const file = path.join(SCREENSHOT_DIR, `${Date.now()}_${slugify(step)}.png`);
   // Viewport-only (not fullPage): fullPage screenshots on a long/slow-loading
   // page can hang waiting for every font/image on the page to settle.
   await page.screenshot({ path: file, timeout: 10_000 });
@@ -77,6 +96,24 @@ async function login(page: Page): Promise<void> {
     // page load is harmless (unlike retrying the order submit further down).
     await withRetries(3, () => page.goto(LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 30000 }));
 
+    const beforeFillShot = await screenshotBestEffort(page, "BEFORE_FILL");
+    console.log(`اسکرین‌شات قبل از پر کردن فرم: ${beforeFillShot ?? "ناموفق"}`);
+
+    // login.emofid.com sometimes lands on the easytrader.ir marketing homepage
+    // instead of the login form directly. A password field is the real
+    // signal we're on the form; if it's missing, click through "ورود" first.
+    const passwordField = page.locator('input[type="password"]').first();
+    const onLoginForm = await passwordField.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!onLoginForm) {
+      console.log("فرم ورود مستقیم دیده نشد (احتمالاً صفحه‌ی تبلیغاتی)، روی لینک «ورود» کلیک می‌کنیم.");
+      await page.getByRole("link", { name: "ورود", exact: true })
+        .or(page.getByRole("button", { name: "ورود", exact: true }))
+        .first()
+        .click();
+      await passwordField.waitFor({ state: "visible", timeout: 15000 });
+      await screenshotBestEffort(page, "AFTER_CLICK_LOGIN_LINK");
+    }
+
     // Username field: no confirmed selector yet, falls back through a few guesses.
     const usernameField = page
       .locator('input[type="text"], input[type="tel"], input:not([type="password"])')
@@ -84,7 +121,6 @@ async function login(page: Page): Promise<void> {
     await usernameField.waitFor({ state: "visible", timeout: 15000 });
     await usernameField.fill(config.mofidUsername);
 
-    const passwordField = page.locator('input[type="password"]').first();
     await passwordField.fill(config.mofidPassword);
 
     await page.getByRole("button", { name: "ورود" }).click();
