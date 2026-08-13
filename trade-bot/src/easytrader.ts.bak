@@ -140,6 +140,8 @@ async function login(page: Page, context: BrowserContext): Promise<void> {
       return;
     }
 
+    const beforeFillShot = await screenshotBestEffort(page, "BEFORE_FILL");
+    console.log(`اسکرین‌شات قبل از پر کردن فرم: ${beforeFillShot ?? "ناموفق"}`);
 
     // login.emofid.com sometimes lands on the easytrader.ir marketing homepage
     // instead of the login form directly. A password field is the real
@@ -197,6 +199,7 @@ async function login(page: Page, context: BrowserContext): Promise<void> {
       if (inApp) break;
 
       console.log(`اپ اصلی هنوز دیده نشد (تلاش ${attempt} از 3) -- احتمالاً دوباره صفحه‌ی تبلیغاتی.`);
+      await screenshotBestEffort(page, `STILL_MARKETING_${attempt}`);
       if (attempt === 3) {
         throw new Error("بعد از ورود، اپ اصلی (تب «جستجو») پیدا نشد -- احتمالاً هنوز روی صفحه‌ی تبلیغاتی است.");
       }
@@ -264,6 +267,7 @@ async function submitOrder(
     const buttonLabel = action === "buy" ? "خرید" : "فروش";
     await page.getByText(buttonLabel, { exact: true }).click();
 
+    await screenshotBestEffort(page, `ORDER_SHEET_OPEN_${action}`);
     await dumpHtml(page, `ORDER_SHEET_OPEN_${action}`);
 
     // Order sheet: quantity is the first VISIBLE input, price (with a lock
